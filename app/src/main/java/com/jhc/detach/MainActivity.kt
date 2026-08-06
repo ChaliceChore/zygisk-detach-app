@@ -2,11 +2,7 @@ package com.jhc.detach
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
-import android.content.res.Resources
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -64,9 +60,6 @@ import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import com.jhc.detach.ui.theme.ZygiskdetachTheme
 import com.topjohnwu.superuser.Shell
-import java.io.File
-import java.io.FileOutputStream
-
 
 @Composable
 fun AppsList(
@@ -91,9 +84,15 @@ fun AppsList(
                             .fillMaxHeight(0.6f)
                             .padding(5.dp)
                             .padding(PaddingValues(start = 5.dp, end = 10.dp)),
-                        bitmap = if (app.installed) packageManager.getApplicationIcon(app.packageName)
-                            .toBitmap()
-                            .asImageBitmap() else uninstalledAppBitmap,
+                        bitmap =
+                            if (app.installed)
+                                try {
+                                    packageManager.getApplicationIcon(app.packageName)
+                                        .toBitmap()
+                                        .asImageBitmap()
+                                } catch (_: Exception) {
+                                    uninstalledAppBitmap
+                                } else uninstalledAppBitmap,
                         contentDescription = ""
                     )
                     Row(
@@ -195,7 +194,7 @@ fun AppsFilter(
                     }
                 }),
 
-            ) {
+        ) {
             Text(
                 "Detached", modifier = Modifier.padding(10.dp), fontSize = 13.sp
             )
@@ -219,10 +218,10 @@ class Toaster(private val context: Context) {
 fun runShell(cmd: String, toaster: Toaster): String {
     val op = Shell.cmd(cmd).exec()
     if (op.code != 0) {
-        toaster.toast("ERROR: " + op.getErr().joinToString("\n"), Toast.LENGTH_LONG)
+        toaster.toast("ERROR: " + op.err.joinToString("\n"), Toast.LENGTH_LONG)
         return ""
     } else {
-        return op.getOut().joinToString("\n")
+        return op.out.joinToString("\n")
     }
 }
 
@@ -247,14 +246,17 @@ class MainActivity : ComponentActivity() {
             finishAndRemoveTask()
             return
         }
-        var apps = packageManager.getInstalledPackages(0).map {
-            DetachedApp(
-                it.packageName, packageManager.getApplicationLabel(it.applicationInfo).toString()
-            )
+
+        val apps = packageManager.getInstalledPackages(0).mapNotNull {
+            it.applicationInfo?.let { info ->
+                DetachedApp(
+                    it.packageName, packageManager.getApplicationLabel(info).toString()
+                )
+            }
         }.sortedBy { it.label }.toMutableList()
         val alDetach: List<String> = try {
             runShell("/data/adb/modules/zygisk-detach/detach list", toaster).splitn()
-        } catch (e: IndexOutOfBoundsException) {
+        } catch (_: IndexOutOfBoundsException) {
             runShell("/data/adb/modules/zygisk-detach/detach reset", toaster)
             listOf()
         }
@@ -275,7 +277,7 @@ class MainActivity : ComponentActivity() {
                     Scaffold(topBar = {}, floatingActionButton = {
                         FloatingActionButton(onClick = {
                             val detachedList = detachedApps.value.filter { app -> app.detached }
-                                    .map { app -> app.packageName }
+                                .map { app -> app.packageName }
                             if (detachedList.isEmpty()) {
                                 runShell("/data/adb/modules/zygisk-detach/detach reset", toaster)
                                 toaster.toast("Emptied the detach list")
