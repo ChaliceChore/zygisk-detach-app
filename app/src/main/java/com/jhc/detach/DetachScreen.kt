@@ -9,6 +9,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -147,29 +150,41 @@ private fun AppsContent(vm: MainViewModel, padding: PaddingValues) {
     val query = vm.query.trim().lowercase()
     val visible = vm.apps.filter { app ->
         (!vm.onlyDetached || app.packageName in vm.savedDetached || app.packageName in vm.detached) &&
+                when (vm.appType) {
+                    AppType.All -> true
+                    AppType.User -> !app.system
+                    AppType.System -> app.system
+                } &&
                 (query.isEmpty() || app.label.lowercase().contains(query) ||
                         app.packageName.lowercase().contains(query))
     }
     // Sections follow the applied state so rows don't jump around while toggling.
     val (detachedApps, otherApps) = visible.partition { it.packageName in vm.savedDetached }
 
+    // Lazy lists keep their position by item key, which would leave the view parked on the
+    // "Apps" header after a filter change; start from the top instead.
+    val listState = rememberLazyListState()
+    LaunchedEffect(vm.query, vm.onlyDetached, vm.appType) { listState.scrollToItem(0) }
+
     Column(Modifier.padding(top = padding.calculateTopPadding())) {
         SearchField(vm.query, onChange = { vm.query = it })
         Row(
-            Modifier.padding(horizontal = 16.dp),
+            Modifier
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            FilterChip(
-                selected = vm.onlyDetached,
-                onClick = { vm.onlyDetached = !vm.onlyDetached },
-                label = { Text("Detached only") },
-                leadingIcon = if (vm.onlyDetached) {
-                    { Icon(Icons.Filled.Check, null, Modifier.size(FilterChipDefaults.IconSize)) }
-                } else null
-            )
+            FilterToggle("Detached only", vm.onlyDetached) { vm.onlyDetached = !vm.onlyDetached }
+            FilterToggle("User", vm.appType == AppType.User) {
+                vm.appType = if (vm.appType == AppType.User) AppType.All else AppType.User
+            }
+            FilterToggle("System", vm.appType == AppType.System) {
+                vm.appType = if (vm.appType == AppType.System) AppType.All else AppType.System
+            }
         }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
+            state = listState,
             contentPadding = PaddingValues(bottom = padding.calculateBottomPadding() + 8.dp)
         ) {
             if (detachedApps.isNotEmpty()) {
@@ -188,7 +203,7 @@ private fun AppsContent(vm: MainViewModel, padding: PaddingValues) {
                 item(key = "empty") {
                     Text(
                         if (vm.query.isNotBlank()) "No apps match \"${vm.query.trim()}\""
-                        else "No detached apps yet",
+                        else "No apps match these filters",
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(32.dp),
@@ -199,6 +214,18 @@ private fun AppsContent(vm: MainViewModel, padding: PaddingValues) {
             }
         }
     }
+}
+
+@Composable
+private fun FilterToggle(label: String, selected: Boolean, onClick: () -> Unit) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label) },
+        leadingIcon = if (selected) {
+            { Icon(Icons.Filled.Check, null, Modifier.size(FilterChipDefaults.IconSize)) }
+        } else null
+    )
 }
 
 @Composable

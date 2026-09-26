@@ -1,6 +1,7 @@
 package com.jhc.detach
 
 import android.app.Application
+import android.content.pm.ApplicationInfo
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -18,8 +19,11 @@ private const val DETACH = "/data/adb/modules/zygisk-detach/detach"
 data class AppEntry(
     val packageName: String,
     val label: String,
-    val installed: Boolean = true
+    val installed: Boolean = true,
+    val system: Boolean = false
 )
+
+enum class AppType { All, User, System }
 
 sealed interface LoadState {
     data object Loading : LoadState
@@ -45,6 +49,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     var query by mutableStateOf("")
     var onlyDetached by mutableStateOf(false)
+    var appType by mutableStateOf(AppType.All)
 
     private val _messages = Channel<String>(Channel.BUFFERED)
     val messages = _messages.receiveAsFlow()
@@ -102,7 +107,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val pm = getApplication<Application>().packageManager
         val installed = pm.getInstalledPackages(0).mapNotNull {
             it.applicationInfo?.let { info ->
-                AppEntry(it.packageName, pm.getApplicationLabel(info).toString())
+                AppEntry(
+                    it.packageName,
+                    pm.getApplicationLabel(info).toString(),
+                    system = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                )
             }
         }
         val installedNames = installed.mapTo(HashSet()) { it.packageName }
