@@ -2,6 +2,7 @@ package com.jhc.detach
 
 import android.util.LruCache
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -9,7 +10,6 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,12 +19,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -61,15 +63,23 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -80,8 +90,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -138,13 +150,15 @@ fun DetachScreen(vm: MainViewModel) {
             ) { CircularProgressIndicator() }
 
             is LoadState.Error -> ErrorContent(state, vm::load, Modifier.padding(padding))
-            LoadState.Ready -> AppsContent(vm, padding)
+            LoadState.Ready -> AppsContent(
+                vm, padding, scrolled = scrollBehavior.state.overlappedFraction > 0.01f
+            )
         }
     }
 }
 
 @Composable
-private fun AppsContent(vm: MainViewModel, padding: PaddingValues) {
+private fun AppsContent(vm: MainViewModel, padding: PaddingValues, scrolled: Boolean) {
     val query = vm.query.trim().lowercase()
     val visible = vm.apps.filter { app ->
         (!vm.onlyDetached || app.packageName in vm.savedDetached || app.packageName in vm.detached) &&
@@ -162,28 +176,41 @@ private fun AppsContent(vm: MainViewModel, padding: PaddingValues) {
     // Lazy lists keep their position by item key, which would leave the view parked on the
     // "Apps" header after a filter change; start from the top instead.
     val listState = rememberLazyListState()
-    LaunchedEffect(vm.query, vm.onlyDetached, vm.appType) { listState.scrollToItem(0) }
 
-    Column(Modifier.padding(top = padding.calculateTopPadding())) {
-        SearchField(vm.query, onChange = { vm.query = it })
-        Row(
-            Modifier
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            FilterToggle("Detached only", vm.onlyDetached) { vm.onlyDetached = !vm.onlyDetached }
-            FilterToggle("User", vm.appType == AppType.User) {
-                vm.appType = if (vm.appType == AppType.User) AppType.All else AppType.User
-            }
-            FilterToggle("System", vm.appType == AppType.System) {
-                vm.appType = if (vm.appType == AppType.System) AppType.All else AppType.System
+    // Search + chips slide away while scrolling down and come back on any scroll up.
+    var headerHeight by remember { mutableIntStateOf(0) }
+    var headerOffset by remember { mutableFloatStateOf(0f) }
+    val collapseHeader = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                headerOffset = (headerOffset + available.y).coerceIn(-headerHeight.toFloat(), 0f)
+                return Offset.Zero
             }
         }
+    }
+    LaunchedEffect(vm.query, vm.onlyDetached, vm.appType) {
+        listState.scrollToItem(0)
+        headerOffset = 0f
+    }
+    val headerColor by animateColorAsState(
+        if (scrolled) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surface,
+        label = "headerColor"
+    )
+
+    Box(
+        Modifier
+            .padding(top = padding.calculateTopPadding())
+            .fillMaxSize()
+            .clipToBounds()
+            .nestedScroll(collapseHeader)
+    ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             state = listState,
-            contentPadding = PaddingValues(bottom = padding.calculateBottomPadding() + 8.dp)
+            contentPadding = PaddingValues(
+                top = with(LocalDensity.current) { headerHeight.toDp() },
+                bottom = padding.calculateBottomPadding() + 8.dp
+            )
         ) {
             if (detachedApps.isNotEmpty()) {
                 item(key = "h-detached") { SectionHeader("Detached", detachedApps.size) }
@@ -208,6 +235,32 @@ private fun AppsContent(vm: MainViewModel, padding: PaddingValues) {
                         textAlign = TextAlign.Center,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+        }
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .onSizeChanged { headerHeight = it.height }
+                .offset { IntOffset(0, headerOffset.roundToInt()) }
+                .background(headerColor)
+                // The chips' 48dp touch targets already add 8dp above and below them;
+                // this makes the gap under the chips match the one above them.
+                .padding(bottom = 8.dp)
+        ) {
+            SearchField(vm.query, onChange = { vm.query = it })
+            Row(
+                Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterToggle("Detached only", vm.onlyDetached) { vm.onlyDetached = !vm.onlyDetached }
+                FilterToggle("User", vm.appType == AppType.User) {
+                    vm.appType = if (vm.appType == AppType.User) AppType.All else AppType.User
+                }
+                FilterToggle("System", vm.appType == AppType.System) {
+                    vm.appType = if (vm.appType == AppType.System) AppType.All else AppType.System
                 }
             }
         }
