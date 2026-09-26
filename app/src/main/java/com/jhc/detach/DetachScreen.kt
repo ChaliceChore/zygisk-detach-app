@@ -2,7 +2,6 @@ package com.jhc.detach
 
 import android.util.LruCache
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -59,7 +58,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -102,11 +100,9 @@ import kotlinx.coroutines.withContext
 fun DetachScreen(vm: MainViewModel) {
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
-    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val ready = vm.loadState == LoadState.Ready
 
     Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
                 title = {
@@ -127,8 +123,7 @@ fun DetachScreen(vm: MainViewModel) {
                             Icon(Icons.Filled.Refresh, "Reload")
                         }
                     }
-                },
-                scrollBehavior = scrollBehavior
+                }
             )
         },
         bottomBar = {
@@ -150,15 +145,13 @@ fun DetachScreen(vm: MainViewModel) {
             ) { CircularProgressIndicator() }
 
             is LoadState.Error -> ErrorContent(state, vm::load, Modifier.padding(padding))
-            LoadState.Ready -> AppsContent(
-                vm, padding, scrolled = scrollBehavior.state.overlappedFraction > 0.01f
-            )
+            LoadState.Ready -> AppsContent(vm, padding)
         }
     }
 }
 
 @Composable
-private fun AppsContent(vm: MainViewModel, padding: PaddingValues, scrolled: Boolean) {
+private fun AppsContent(vm: MainViewModel, padding: PaddingValues) {
     val query = vm.query.trim().lowercase()
     val visible = vm.apps.filter { app ->
         (!vm.onlyDetached || app.packageName in vm.savedDetached || app.packageName in vm.detached) &&
@@ -192,10 +185,6 @@ private fun AppsContent(vm: MainViewModel, padding: PaddingValues, scrolled: Boo
         listState.scrollToItem(0)
         headerOffset = 0f
     }
-    val headerColor by animateColorAsState(
-        if (scrolled) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surface,
-        label = "headerColor"
-    )
 
     Box(
         Modifier
@@ -243,7 +232,7 @@ private fun AppsContent(vm: MainViewModel, padding: PaddingValues, scrolled: Boo
                 .fillMaxWidth()
                 .onSizeChanged { headerHeight = it.height }
                 .offset { IntOffset(0, headerOffset.roundToInt()) }
-                .background(headerColor)
+                .background(MaterialTheme.colorScheme.surface)
                 // The chips' 48dp touch targets already add 8dp above and below them;
                 // this makes the gap under the chips match the one above them.
                 .padding(bottom = 8.dp)
