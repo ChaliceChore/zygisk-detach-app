@@ -6,7 +6,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -144,7 +143,6 @@ fun DetachScreen(vm: MainViewModel) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AppsContent(vm: MainViewModel, padding: PaddingValues) {
     val query = vm.query.trim().lowercase()
@@ -188,13 +186,13 @@ private fun AppsContent(vm: MainViewModel, padding: PaddingValues) {
             contentPadding = PaddingValues(bottom = padding.calculateBottomPadding() + 8.dp)
         ) {
             if (detachedApps.isNotEmpty()) {
-                stickyHeader(key = "h-detached") { SectionHeader("Detached", detachedApps.size) }
+                item(key = "h-detached") { SectionHeader("Detached", detachedApps.size) }
                 items(detachedApps, key = { it.packageName }) { app ->
                     AppRow(app, app.packageName in vm.detached) { vm.toggle(app.packageName, it) }
                 }
             }
             if (otherApps.isNotEmpty()) {
-                stickyHeader(key = "h-apps") { SectionHeader("Apps", otherApps.size) }
+                item(key = "h-apps") { SectionHeader("Apps", otherApps.size) }
                 items(otherApps, key = { it.packageName }) { app ->
                     AppRow(app, app.packageName in vm.detached) { vm.toggle(app.packageName, it) }
                 }
@@ -268,7 +266,6 @@ private fun SectionHeader(title: String, count: Int) {
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface)
             .padding(horizontal = 16.dp, vertical = 12.dp)
     )
 }
